@@ -11,7 +11,7 @@ import org.junit.runner.RunWith;
 import org.thomaspengo.tslim.util.Utils;
 
 @RunWith(Enclosed.class) 
-public class PluginTester {
+public class PluginTest {
 
 	public static class ImageJTests {
 		static ImageJ ij;

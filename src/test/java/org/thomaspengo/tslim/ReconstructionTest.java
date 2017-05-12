@@ -25,7 +25,7 @@ import org.thomaspengo.tslim.ReconstructFromRadialSlices;
  * @author Thomas Pengo
  */
 @RunWith(Enclosed.class) 
-public class ReconstructionTester {
+public class ReconstructionTest {
 	static ImageJ ij;
 	
 	@BeforeClass
@@ -73,7 +73,7 @@ public class ReconstructionTester {
 			double dy = y-Y/2; dy = dy/Y;
 			double dz = z-Z/2; dz = dz/Z;
 			
-			if ( Math.sqrt(dx*dx+dy*dy+dz*dz) < 1/4 ) 
+			if ( dx*dx+dy*dy+dz*dz < 0.125 ) 
 				cursor.get().set(1);
 		}
 		
@@ -109,19 +109,19 @@ public class ReconstructionTester {
 		
 		@Test
 		public void testCreateOval1() {
-			Img<FloatType> out = createOval(100, 100, 10);
+			Img<FloatType> out = createOval(100, 100, 50);
 						
 			RandomAccess<FloatType> c = out.randomAccess();
-			c.setPosition(new long[] {50,50,5});
+			c.setPosition(new long[] {50,50,25});
 			assertEquals(1.0, c.get().getRealDouble(), .01);
 			
-			c.setPosition(new long[] {25,25,5});
-			assertEquals(1.0, c.get().getRealDouble(), .01);
-			
-			c.setPosition(new long[] {25,25,8});
+			c.setPosition(new long[] {25,25,25});
 			assertEquals(0.0, c.get().getRealDouble(), .01);
 			
-			c.setPosition(new long[] {26,26,5});
+			c.setPosition(new long[] {25,25,30});
+			assertEquals(0.0, c.get().getRealDouble(), .01);
+			
+			c.setPosition(new long[] {26,26,25});
 			assertEquals(1.0, c.get().getRealDouble(), .01);
 		}
 	}
@@ -136,15 +136,15 @@ public class ReconstructionTester {
 			r.setInputStack(in);
 
 			Img<FloatType> out = r.createReconstruction();
-			
-			ImageJFunctions.show(out);
-			
-			try {
-				TimeUnit.SECONDS.sleep(20);
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
 		}
+	}
+	
+	private static void pause(int secs) {
+		try {
+			TimeUnit.SECONDS.sleep(20);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}		
 	}
 }

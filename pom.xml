@@ -46,7 +46,7 @@
 	</ciManagement>
 	<groupId>org.thomaspengo.tslim</groupId>
 	<artifactId>radial_reconstruction_plugin</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>0.0.2-SNAPSHOT</version>
 	<name>Radial Reconstruction Plugin</name>
 	<description>An ImageJ plugin written using ImgLib2 to convert a radial stack to a translational stack.</description>
 	<dependencies>
