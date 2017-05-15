@@ -3,9 +3,9 @@
  */
 package org.thomaspengo.tslim;
 
-import org.thomaspengo.tslim.gui.RadialReconstructionPlugin;
-
 import ij.ImageJ;
+
+import org.thomaspengo.tslim.gui.RadialReconstructionPlugin;
 
 /**
  * @author Thomas Pengo

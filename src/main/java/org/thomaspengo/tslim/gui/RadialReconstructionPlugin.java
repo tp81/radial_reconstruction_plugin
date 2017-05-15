@@ -1,29 +1,16 @@
 package org.thomaspengo.tslim.gui;
 
+import ij.IJ;
+import ij.ImageJ;
+import ij.ImagePlus;
+import ij.plugin.PlugIn;
+import ij.plugin.frame.Recorder;
+
 import java.awt.Component;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.ItemEvent;
-import java.awt.event.ItemListener;
 import java.util.Map;
-import java.util.TreeMap;
-import java.util.regex.Pattern;
-
-
-
-
-
-import ij.IJEventListener;
-import ij.ImageJ;
-import ij.ImagePlus;
-import ij.plugin.PlugIn;
-
-
-
-
 
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -32,33 +19,30 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
-import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
-
-
-
-
 
 import net.imglib2.img.Img;
 import net.imglib2.img.display.imagej.ImageJFunctions;
 import net.imglib2.type.numeric.real.FloatType;
 
-
-
-
-
 import org.thomaspengo.tslim.ReconstructFromRadialSlices;
 import org.thomaspengo.tslim.ReconstructFromRadialSlices.RHT_order;
 import org.thomaspengo.tslim.util.Utils;
 
-public class RadialReconstructionPlugin extends JDialog implements PlugIn, ActionListener {
+public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 	private static final String 	CURRENT_VERSION = "0.1";
-	private static final boolean 	ASYNCH_DEFAULT = true;
-	
 	
 	ImagePlus inputImage = null;
 	ReconstructFromRadialSlices reconstructor = new ReconstructFromRadialSlices();
-	private boolean asychEnabled = ASYNCH_DEFAULT;
+	
+	/** 
+	 * Utility function to make this plugin scriptable
+	 *  
+	 * @param arguments
+	 */
+	public static void start(String arguments) {
+		new RadialReconstructionPlugin().run(arguments);
+	}
 	
 	@Override
 	public void run(String arg0) {
@@ -87,7 +71,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn, Actio
 				}
 			}
 			
-			Img<FloatType> res = reconstructor.createReconstruction();
+			Img<FloatType> res = reconstructor.createReconstruction( (progress) -> IJ.showProgress(progress) );
 			
 			ImageJFunctions.show(res);
 		}
@@ -124,7 +108,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn, Actio
 		addTo(jp,jcDestOrder,2,row, 1,1); 
 
 		row++;
-		JButton jbReconstruct = new JButton("Reconstruct"); 				addTo(jp,jbReconstruct,0,row, 2,1);
+		JButton jbReconstruct = new JButton("Start"); 				addTo(jp,jbReconstruct,0,row, 2,1);
 		JButton jbCancel = new JButton("Cancel"); 							addTo(jp,jbCancel,3,row, 1,1);
 		// --- DESIGN END
 		
@@ -172,19 +156,11 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn, Actio
 		// RECONSTRUCT BUTTON
 		jbReconstruct.setEnabled(false);
 		jbReconstruct.addActionListener(e -> {
-			if (asychEnabled) {
-				reconstructor.startReconstruction((success, res, exc) -> {
-					if (success) {
-						ImageJFunctions.show(res);
-					} else {
-						JOptionPane.showMessageDialog(this, "Exception thrown :"+exc.getLocalizedMessage());
-					}
-				});
-			} else {
-				Img<FloatType> res = reconstructor.createReconstruction();
-				ImageJFunctions.show(res);
-			}
-		});
+			reconstructor.startReconstruction(new ReconstructionActivity(this));
+			if (Recorder.record) {
+				String command = "call('"+RadialReconstructionPlugin.class.getCanonicalName()+".start','input=["+((ImagePointer)jcbImages.getSelectedItem()).getTitle()+"] spacing="+jtSpacing.getValue()+"');";
+				Recorder.recordString(command);
+			}});
 		
 		// CANCEL BUTTON
 		jbCancel.addActionListener(e -> reconstructor.killAllReconstructions());
@@ -204,6 +180,31 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn, Actio
 		setVisible(true);
 		
 		ij.WindowManager.addWindow(this);
+	}
+	
+	class ReconstructionActivity implements ReconstructionCallback<FloatType> {
+		RadialReconstructionPlugin parent;
+		
+		public ReconstructionActivity(RadialReconstructionPlugin radialReconstructionPlugin) {
+			this.parent = radialReconstructionPlugin;
+		}
+		
+		@Override
+		public void reconstructed(boolean success,
+				Img<FloatType> reconstruction, Exception e) {
+			if (success) {
+				ImageJFunctions.show(reconstruction);
+				IJ.showProgress(1);
+			} else {
+				JOptionPane.showMessageDialog(parent, "Exception thrown :"+e.getLocalizedMessage());
+			}
+			
+		}
+		
+		@Override
+		public void progressUpdate(double progress) {
+			IJ.showProgress(progress);
+		}
 	}
 	
 	private String getVersion() {
@@ -237,18 +238,6 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn, Actio
 		jp.add(o, c);
 	}
 	
-	@Override
-	public void actionPerformed(ActionEvent e) {
-		
-	}	
-	
-	
-	public static void main(String[] args) {
-		new ImageJ();
-		
-		new RadialReconstructionPlugin().run("");
-	}
-	
 	// Small class to represent each item in the list
 	class ImagePointer {
 		int ID;
@@ -273,12 +262,11 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn, Actio
 		}
 	}
 	
-	/**
-	 * When set to true, the reconstruction button will not interrupt interacting with the dialog box.
-	 * 
-	 * @param asychEnabled
-	 */
-	public void setAsychEnabled(boolean asychEnabled) {
-		this.asychEnabled = asychEnabled;
+	public static void main(String[] args) {
+		new ImageJ();
+		
+		IJ.openImage("http://imagej.nih.gov/ij/images/blobs.gif").show();
+		
+		new RadialReconstructionPlugin().run("");
 	}
 }

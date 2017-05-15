@@ -1,6 +1,6 @@
 package org.thomaspengo.tslim;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
 import ij.ImageJ;
 
 import org.junit.AfterClass;

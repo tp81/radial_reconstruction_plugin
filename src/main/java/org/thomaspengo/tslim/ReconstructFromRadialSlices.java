@@ -1,10 +1,10 @@
 package org.thomaspengo.tslim;
-import java.util.ArrayList;
+
 import java.util.Arrays;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.Vector;
-
-import org.thomaspengo.tslim.gui.ReconstructionCallback;
 
 import net.imglib2.Cursor;
 import net.imglib2.RealRandomAccess;
@@ -14,7 +14,11 @@ import net.imglib2.img.ImgFactory;
 import net.imglib2.img.array.ArrayImgFactory;
 import net.imglib2.interpolation.randomaccess.NLinearInterpolatorFactory;
 import net.imglib2.type.numeric.real.FloatType;
+import net.imglib2.view.IntervalView;
 import net.imglib2.view.Views;
+
+import org.thomaspengo.tslim.gui.ReconstructionCallback;
+import org.thomaspengo.tslim.gui.ReconstructionProgress;
 
 
 /**
@@ -25,6 +29,8 @@ import net.imglib2.view.Views;
 public class ReconstructFromRadialSlices {
 	
 	private static final int RADIAL_ANGLE_SPACING_DEFAULT = 1;
+
+	private int n_chunks = 1;
 	
 	private double radialStackAngleSpacing = RADIAL_ANGLE_SPACING_DEFAULT; //degrees
 	
@@ -86,9 +92,19 @@ public class ReconstructFromRadialSlices {
 
 	private Img<FloatType> source;
 	
+	/**
+	 * Set the number of workers. Default is the number of cores as reported by Runtime.getRuntime().availableProcessors()
+	 * 
+	 * @param n_workers
+	 */
+	public void setNWorkers(int n_workers) {
+		this.n_chunks = n_workers;
+	}
+	
 	public ReconstructFromRadialSlices() {
 		 setSourceOrder(RHT_order.H_R_Theta);
 		 setDestOrder(RHT_order.R_Theta_H);
+		 setNWorkers(Runtime.getRuntime().availableProcessors());
 	}
 	
 	/**
@@ -108,7 +124,7 @@ public class ReconstructFromRadialSlices {
 	public void startReconstruction(ReconstructionCallback<FloatType> callback) {
 		Thread t = new Thread(() -> {
 			try {				
-				Img<FloatType> res = createReconstruction();
+				Img<FloatType> res = createReconstruction(callback);
 			
 				callback.reconstructed(true, res, null);
 			} catch (Exception e) {
@@ -125,7 +141,7 @@ public class ReconstructFromRadialSlices {
 			t.interrupt();
 	}
 
-    public Img< FloatType > createReconstruction( ) {
+    public Img< FloatType > createReconstruction(ReconstructionProgress callback) {
 
        	// Loop the output image and fetch the corresponding angle image stack
         long R = source.dimension(h_r_theta_i[1]);
@@ -150,33 +166,115 @@ public class ReconstructFromRadialSlices {
     			0
     		};
     	
-    	RealRandomAccess< FloatType > realRandomAccess = interpolant1.realRandomAccess();
-    	
-    	double[] x_y_z = {0,0,0};
-		double[] h_r_theta = {0,0,0};
-    	Cursor<FloatType> cursor = output.localizingCursor();
-    	while (cursor.hasNext()) {
-    		// Have to make assumption that it is 3D (xyz)
-    		// Origin of the final stack (x,y,z) is the center of the first slice (X/2,Y/2,0)
-    		// Origin of the angle stack (h,r,theta) is the top left corner of the first slice (0,0,0)
-    		cursor.fwd();
+    	// Get the dimension along which to chunk the image
+    	long maxDim_max = Arrays.stream(outputDimensions).max().getAsLong();
+    	int maxDim_i=0;
+    	for (maxDim_i=0;maxDim_i<outputDimensions.length;maxDim_i++)
+    		if (outputDimensions[maxDim_i]==maxDim_max)
+    			break;
+
+    	// Create a list of ChunkProcessors
+    	List<ChunkProcessor> processors = new Vector<ChunkProcessor>(n_chunks);
+
+    	for (long maxDim_min=0; maxDim_min<maxDim_max; maxDim_min+=maxDim_max/n_chunks) {
+    		long[] maxDim_minChunk = new long[outputDimensions.length];
+    		long[] maxDim_maxChunk = Arrays.stream(outputDimensions.clone()).map((a) -> a-1).toArray();
     		
-    		x_y_z[0] = cursor.getDoublePosition(x_y_z_i[0]);
-    		x_y_z[1] = cursor.getDoublePosition(x_y_z_i[1]);
-    		x_y_z[2] = cursor.getDoublePosition(x_y_z_i[2]);
+    		maxDim_minChunk[maxDim_i]=maxDim_min;
+    		maxDim_maxChunk[maxDim_i]=maxDim_min+(maxDim_max/n_chunks)-1;
     		
-    		// At this point the coordinate order is in the standard order HRT and XYZ
-    		final double[] h_r_theta_pre = fromCubicCoordinates(x_y_z, origin_XYZ, radialStackAngleSpacing);
+    		if (maxDim_maxChunk[maxDim_i]>maxDim_max) {
+    			maxDim_maxChunk[maxDim_i] = maxDim_max;
+    		}
     		
-    		h_r_theta[h_r_theta_i[0]]=h_r_theta_pre[0];
-    		h_r_theta[h_r_theta_i[1]]=h_r_theta_pre[1];
-    		h_r_theta[h_r_theta_i[2]]=h_r_theta_pre[2];
-    		
-    		realRandomAccess.setPosition(h_r_theta);
-    		cursor.get().set(realRandomAccess.get());
+    		processors.add(new ChunkProcessor(
+    				Views.interval(output, maxDim_minChunk, maxDim_maxChunk), 
+    				origin_XYZ.clone(), 
+    				interpolant1.realRandomAccess()));
     	}
     	
+    	// Start all threads
+    	List<Thread> threads = new Vector<Thread>(n_chunks);
+    	for (ChunkProcessor c : processors) {
+    		Thread t = new Thread(c);
+    		threads.add(t);
+    		t.start();
+    	}
+    	
+    	// Update progress every 500ms
+    	Timer progressUpdater = new java.util.Timer();
+    	progressUpdater.scheduleAtFixedRate(new TimerTask() {
+    		@Override
+    		public void run() {
+    			double progressT = 0;
+    			for (ChunkProcessor c : processors)
+    				progressT += c.getProgress();
+    			
+    			callback.progressUpdate(progressT/n_chunks);
+    		}}, 0, 500);
+    	
+    	// Wait for each thread to finish execution
+    	for (Thread t : threads)
+			try {
+				t.join();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			} finally {
+				progressUpdater.cancel();
+			}
+    	
 		return output;
+    }
+    
+    class ChunkProcessor implements Runnable {
+    	IntervalView<FloatType> output;
+    	RealRandomAccess<FloatType> input;
+    	double[] origin_XYZ;
+    	double progress;
+    	
+    	public double getProgress() {
+			return progress;
+		}
+    	
+    	ChunkProcessor(IntervalView<FloatType> output, double[] origin_XYZ, RealRandomAccess<FloatType> input) {
+    		this.output = output;
+    		this.input = input;
+    		this.origin_XYZ=origin_XYZ;
+    		this.progress = 0;
+    	}
+    	
+	    public void run() {
+    		long todo = 1;
+    		for (int idim=0; idim<output.numDimensions(); idim++)
+    			todo *= output.dimension(idim);
+    		long done = 0;
+    		
+	    	double[] x_y_z = {0,0,0};
+			double[] h_r_theta = {0,0,0};
+	    	Cursor<FloatType> cursor = output.localizingCursor();
+	    	while (cursor.hasNext()) {
+	    		// Have to make assumption that it is 3D (xyz)
+	    		// Origin of the final stack (x,y,z) is the center of the first slice (X/2,Y/2,0)
+	    		// Origin of the angle stack (h,r,theta) is the top left corner of the first slice (0,0,0)
+	    		cursor.fwd();
+	    		
+	    		x_y_z[0] = cursor.getDoublePosition(x_y_z_i[0]);
+	    		x_y_z[1] = cursor.getDoublePosition(x_y_z_i[1]);
+	    		x_y_z[2] = cursor.getDoublePosition(x_y_z_i[2]);
+	    		
+	    		// At this point the coordinate order is in the standard order HRT and XYZ
+	    		final double[] h_r_theta_pre = fromCubicCoordinates(x_y_z, origin_XYZ, radialStackAngleSpacing);
+	    		
+	    		h_r_theta[h_r_theta_i[0]]=h_r_theta_pre[0];
+	    		h_r_theta[h_r_theta_i[1]]=h_r_theta_pre[1];
+	    		h_r_theta[h_r_theta_i[2]]=h_r_theta_pre[2];
+	    		
+	    		input.setPosition(h_r_theta);
+	    		cursor.get().set(input.get());
+	    		
+	    		progress = (double)++done/todo;
+	    	}
+	    }
     }
     
     /**

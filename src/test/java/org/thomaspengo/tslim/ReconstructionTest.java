@@ -1,14 +1,13 @@
 package org.thomaspengo.tslim;
 import static org.junit.Assert.assertEquals;
+import ij.ImageJ;
 
 import java.util.concurrent.TimeUnit;
 
-import ij.ImageJ;
 import net.imglib2.Cursor;
 import net.imglib2.RandomAccess;
 import net.imglib2.img.Img;
 import net.imglib2.img.array.ArrayImgFactory;
-import net.imglib2.img.display.imagej.ImageJFunctions;
 import net.imglib2.type.numeric.real.FloatType;
 
 import org.junit.AfterClass;
@@ -16,7 +15,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
 import org.junit.runner.RunWith;
-import org.thomaspengo.tslim.ReconstructFromRadialSlices;
 
 
 /**
@@ -134,8 +132,6 @@ public class ReconstructionTest {
 			ReconstructFromRadialSlices r = new ReconstructFromRadialSlices();
 			
 			r.setInputStack(in);
-
-			Img<FloatType> out = r.createReconstruction();
 		}
 	}
 	
