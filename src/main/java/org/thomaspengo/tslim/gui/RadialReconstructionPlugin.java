@@ -30,7 +30,7 @@ import org.thomaspengo.tslim.ReconstructFromRadialSlices.RHT_order;
 import org.thomaspengo.tslim.util.Utils;
 
 public class RadialReconstructionPlugin extends JDialog implements PlugIn {
-	private static final String 	CURRENT_VERSION = "0.1";
+	private static final String 	CURRENT_VERSION = "0.2";
 	
 	ImagePlus inputImage = null;
 	ReconstructFromRadialSlices reconstructor = new ReconstructFromRadialSlices();
@@ -109,7 +109,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 
 		row++;
 		JButton jbReconstruct = new JButton("Start"); 				addTo(jp,jbReconstruct,0,row, 2,1);
-		JButton jbCancel = new JButton("Cancel"); 							addTo(jp,jbCancel,3,row, 1,1);
+		JButton jbCancel = new JButton("Cancel"); 					addTo(jp,jbCancel,3,row, 1,1);
 		// --- DESIGN END
 		
 		getContentPane().add(jp);
@@ -126,7 +126,9 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 			ImagePlus imgp = ij.WindowManager.getImage(imgpt.getID());
 			if (imgp==null) {
 				refreshImageList(jcbImages);
+				jbReconstruct.setEnabled(false);								
 			} else {
+				inputImage = imgp;
 				Img<FloatType> imgf = ImageJFunctions.convertFloat(imgp);
 				reconstructor.setInputStack(imgf);
 				jbReconstruct.setEnabled(true);				
@@ -156,7 +158,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 		// RECONSTRUCT BUTTON
 		jbReconstruct.setEnabled(false);
 		jbReconstruct.addActionListener(e -> {
-			reconstructor.startReconstruction(new ReconstructionActivity(this));
+			reconstructor.startReconstruction(new ReconstructionActivity(inputImage,this));
 			if (Recorder.record) {
 				String command = "call('"+RadialReconstructionPlugin.class.getCanonicalName()+".start','input=["+((ImagePointer)jcbImages.getSelectedItem()).getTitle()+"] spacing="+jtSpacing.getValue()+"');";
 				Recorder.recordString(command);
@@ -184,8 +186,10 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 	
 	class ReconstructionActivity implements ReconstructionCallback<FloatType> {
 		RadialReconstructionPlugin parent;
+		ImagePlus im;
 		
-		public ReconstructionActivity(RadialReconstructionPlugin radialReconstructionPlugin) {
+		public ReconstructionActivity(ImagePlus im, RadialReconstructionPlugin radialReconstructionPlugin) {
+			this.im = im;
 			this.parent = radialReconstructionPlugin;
 		}
 		
@@ -193,7 +197,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 		public void reconstructed(boolean success,
 				Img<FloatType> reconstruction, Exception e) {
 			if (success) {
-				ImageJFunctions.show(reconstruction);
+				ImageJFunctions.wrapFloat(reconstruction,im.getTitle()+" radial reconstruction").show();
 				IJ.showProgress(1);
 			} else {
 				JOptionPane.showMessageDialog(parent, "Exception thrown :"+e.getLocalizedMessage());

@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.Vector;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import net.imglib2.Cursor;
 import net.imglib2.RealRandomAccess;
@@ -120,9 +123,10 @@ public class ReconstructFromRadialSlices {
 		this.source = in;
 	}
 	
-	List<Thread> threadSet = new Vector<Thread>();
+	ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+	
 	public void startReconstruction(ReconstructionCallback<FloatType> callback) {
-		Thread t = new Thread(() -> {
+		executor.execute(() -> {
 			try {				
 				Img<FloatType> res = createReconstruction(callback);
 			
@@ -131,14 +135,10 @@ public class ReconstructFromRadialSlices {
 				callback.reconstructed(false, null, e);
 			}
 		});
-		
-		t.start();
-		threadSet.add(t);
 	}
 	
 	public void killAllReconstructions() {
-		for (Thread t : threadSet)
-			t.interrupt();
+		executor.shutdownNow();
 	}
 
     public Img< FloatType > createReconstruction(ReconstructionProgress callback) {
@@ -184,7 +184,7 @@ public class ReconstructFromRadialSlices {
     		maxDim_maxChunk[maxDim_i]=maxDim_min+(maxDim_max/n_chunks)-1;
     		
     		if (maxDim_maxChunk[maxDim_i]>maxDim_max) {
-    			maxDim_maxChunk[maxDim_i] = maxDim_max;
+    			maxDim_maxChunk[maxDim_i] = maxDim_max-1;
     		}
     		
     		processors.add(new ChunkProcessor(
