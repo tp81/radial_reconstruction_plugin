@@ -78,6 +78,8 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 	}
 	
 	private void startGUI() {
+		String title = "TSLIM Reconstruction v"+getVersion();
+		setTitle(title);
 		setLocationRelativeTo(null);
 		setModal(false);
 
@@ -86,7 +88,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 		
 		// --- DESIGN BEGIN
 		int row = 0;
-		JLabel tslim = new JLabel("TSLIM Reconstruction v"+getVersion()); 	addTo(jp,tslim,0,row, 3,1);
+		JLabel tslim = new JLabel(title); 									addTo(jp,tslim,0,row, 3,1);
 
 		row++;
 		addTo(jp,new JLabel("Radial stack"),0,row, 2,1);
@@ -96,6 +98,14 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 		row++;
 		addTo(jp,new JLabel("Radial stack angle(z) spacing (deg)"),0,row, 2,1);
 		JSpinner jtSpacing = new JSpinner();								addTo(jp,jtSpacing,2,row, 1,1); 
+
+		row++;
+		addTo(jp,new JLabel("Rotation axis to imaging plane (x,px)"),0,row, 2,1);
+		JSpinner jtBiasX = new JSpinner();									addTo(jp,jtBiasX,2,row, 1,1); 
+
+		row++;
+		addTo(jp,new JLabel("Rotation axis to imaging plane (y,px)"),0,row, 2,1);
+		JSpinner jtBiasY = new JSpinner();									addTo(jp,jtBiasY,2,row, 1,1); 
 
 		row++;
 		addTo(jp,new JLabel("Dimension order of source"),0,row, 2,1);
@@ -178,6 +188,24 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 			reconstructor.setRadialStackAngleSpacing(val);
 		});
 		
+		// BIAS X SPINNER
+		SpinnerNumberModel bxm = new SpinnerNumberModel(0,-1e9,1e9,0.5); 
+		jtBiasX.setModel(bxm);
+		jtBiasX.addChangeListener(e -> {
+			double val = bxm.getNumber().doubleValue();
+			double[] bias = reconstructor.getBias();
+			bias[0]=val;
+		});
+		
+		// BIAS Y SPINNER
+		SpinnerNumberModel bym = new SpinnerNumberModel(0,-1e9,1e9,0.5); 
+		jtBiasY.setModel(bym);
+		jtBiasY.addChangeListener(e -> {
+			double val = bym.getNumber().doubleValue();
+			double[] bias = reconstructor.getBias();
+			bias[1]=val;
+		});
+		
 		pack();
 		setVisible(true);
 		
@@ -197,7 +225,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 		public void reconstructed(boolean success,
 				Img<FloatType> reconstruction, Exception e) {
 			if (success) {
-				ImageJFunctions.wrapFloat(reconstruction,im.getTitle()+" radial reconstruction").show();
+				ImageJFunctions.showFloat(reconstruction,im.getTitle()+" radial reconstruction");
 				IJ.showProgress(1);
 			} else {
 				JOptionPane.showMessageDialog(parent, "Exception thrown :"+e.getLocalizedMessage());

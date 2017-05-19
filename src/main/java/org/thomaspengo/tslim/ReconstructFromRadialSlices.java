@@ -5,9 +5,11 @@ import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.Vector;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import net.imglib2.Cursor;
 import net.imglib2.RealRandomAccess;
@@ -33,12 +35,20 @@ public class ReconstructFromRadialSlices {
 	
 	private static final int RADIAL_ANGLE_SPACING_DEFAULT = 1;
 
-	private int n_chunks = 1;
+	private int n_chunks = Runtime.getRuntime().availableProcessors();
 	
 	private double radialStackAngleSpacing = RADIAL_ANGLE_SPACING_DEFAULT; //degrees
 	
 	int[] h_r_theta_i = {0,1,2};
 	int[] x_y_z_i = {0,1,2};
+	
+	double[] bias = {0,0};
+	public void setBias(double[] bias) {
+		this.bias = bias;
+	}
+	public double[] getBias() {
+		return bias;
+	}
 
 	public enum RHT_order {
 			H_R_Theta, H_Theta_R,
@@ -123,10 +133,11 @@ public class ReconstructFromRadialSlices {
 		this.source = in;
 	}
 	
-	ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+	ExecutorService actionExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+	ExecutorService chunkExecutor = Executors.newFixedThreadPool(n_chunks);
 	
 	public void startReconstruction(ReconstructionCallback<FloatType> callback) {
-		executor.execute(() -> {
+		actionExecutor.execute(() -> {
 			try {				
 				Img<FloatType> res = createReconstruction(callback);
 			
@@ -138,7 +149,8 @@ public class ReconstructFromRadialSlices {
 	}
 	
 	public void killAllReconstructions() {
-		executor.shutdownNow();
+		//actionExecutor.shutdownNow();
+		chunkExecutor.shutdownNow();
 	}
 
     public Img< FloatType > createReconstruction(ReconstructionProgress callback) {
@@ -190,18 +202,11 @@ public class ReconstructFromRadialSlices {
     		processors.add(new ChunkProcessor(
     				Views.interval(output, maxDim_minChunk, maxDim_maxChunk), 
     				origin_XYZ.clone(), 
+    				bias.clone(),
     				interpolant1.realRandomAccess()));
     	}
     	
-    	// Start all threads
-    	List<Thread> threads = new Vector<Thread>(n_chunks);
-    	for (ChunkProcessor c : processors) {
-    		Thread t = new Thread(c);
-    		threads.add(t);
-    		t.start();
-    	}
-    	
-    	// Update progress every 500ms
+    	// Update progress every 250ms
     	Timer progressUpdater = new java.util.Timer();
     	progressUpdater.scheduleAtFixedRate(new TimerTask() {
     		@Override
@@ -214,36 +219,37 @@ public class ReconstructFromRadialSlices {
     		}}, 0, 500);
     	
     	// Wait for each thread to finish execution
-    	for (Thread t : threads)
-			try {
-				t.join();
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			} finally {
-				progressUpdater.cancel();
-			}
+    	try {
+    		chunkExecutor.invokeAll(processors);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		} finally {    	
+			progressUpdater.cancel();
+		}
     	
 		return output;
     }
     
-    class ChunkProcessor implements Runnable {
+    class ChunkProcessor implements Callable<Boolean> {
     	IntervalView<FloatType> output;
     	RealRandomAccess<FloatType> input;
     	double[] origin_XYZ;
+    	double[] bias;
     	double progress;
     	
     	public double getProgress() {
 			return progress;
 		}
     	
-    	ChunkProcessor(IntervalView<FloatType> output, double[] origin_XYZ, RealRandomAccess<FloatType> input) {
+    	ChunkProcessor(IntervalView<FloatType> output, double[] origin_XYZ, double[] bias, RealRandomAccess<FloatType> input) {
     		this.output = output;
     		this.input = input;
     		this.origin_XYZ=origin_XYZ;
+    		this.bias=bias;
     		this.progress = 0;
     	}
     	
-	    public void run() {
+	    public Boolean call() {
     		long todo = 1;
     		for (int idim=0; idim<output.numDimensions(); idim++)
     			todo *= output.dimension(idim);
@@ -263,17 +269,20 @@ public class ReconstructFromRadialSlices {
 	    		x_y_z[2] = cursor.getDoublePosition(x_y_z_i[2]);
 	    		
 	    		// At this point the coordinate order is in the standard order HRT and XYZ
-	    		final double[] h_r_theta_pre = fromCubicCoordinates(x_y_z, origin_XYZ, radialStackAngleSpacing);
+	    		final double[] h_r_theta_pre = fromCubicCoordinates(x_y_z, bias, origin_XYZ, radialStackAngleSpacing);
 	    		
 	    		h_r_theta[h_r_theta_i[0]]=h_r_theta_pre[0];
 	    		h_r_theta[h_r_theta_i[1]]=h_r_theta_pre[1];
 	    		h_r_theta[h_r_theta_i[2]]=h_r_theta_pre[2];
 	    		
 	    		input.setPosition(h_r_theta);
-	    		cursor.get().set(input.get());
+	    		FloatType f = input.get();
+	    		cursor.get().set(f);
 	    		
 	    		progress = (double)++done/todo;
 	    	}
+	    	
+	    	return true;
 	    }
     }
     
@@ -287,22 +296,30 @@ public class ReconstructFromRadialSlices {
      * @param x_y_z a double array of size 3 with the x,y and z coordinates with origin in upper left corner
      * @param originFinal where rho=0,h=0 is in the xyz space
      * @param spacing is the spacing (degrees) between thetas(=slices) in the h,rho,theta stack
+     * @param bias is the offset between the imaging plane and the rotation axis 
      * 
      * @return an array of size 3 with the coordinates in cylindrical form
      */
-	private static final double[] fromCubicCoordinates(final double[] x_y_z, final double[] originFinal, final double spacing) {
+	private static final double[] fromCubicCoordinates(final double[] x_y_z, double[] bias_x_y, final double[] originFinal, final double spacing) {
 		double[] h_r_theta = new double[]  {0,0,0};
 		
 		final double dx = x_y_z[0]-originFinal[0];
 		final double dy = x_y_z[1]-originFinal[1];
 		
-		h_r_theta[0] = x_y_z[2];
-		h_r_theta[1] = Math.sqrt(dx*dx+dy*dy);
+		// Squared distance of probe point to axis of rotation
+		final double r2 = dx*dx+dy*dy;
 		
-		if(dx==0 && dy==0)
+		// Squared distance of axis of rotation to imaging plane
+		final double br2 = bias_x_y[0]*bias_x_y[0]+bias_x_y[1]*bias_x_y[1];
+		
+		h_r_theta[0] = x_y_z[2];
+		h_r_theta[1] = Math.sqrt(r2-br2);	// Squared distance of probe to image rotation circle
+		
+		// When inside image rotation circle
+		if(r2<=br2)
 			h_r_theta[2]=0;
 		else
-			h_r_theta[2] = Math.atan2(dy, dx)/Math.PI*180+180;
+			h_r_theta[2] = (Math.atan2(dy, dx)+Math.acos(Math.sqrt(br2/r2)))/Math.PI*180+180;
 		
 		h_r_theta[2] /= spacing;
 		
