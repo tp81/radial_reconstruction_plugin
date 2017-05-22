@@ -2,7 +2,7 @@ package org.thomaspengo.tslim.gui;
 
 import net.imglib2.img.Img;
 
-public interface ReconstructionCallback <T> extends ReconstructionProgress {
+public interface ReconstructionCallback <T> {
 
 	/**
 	 * As soon as the reconstruction will have finished, the reconstruction plugin will call 

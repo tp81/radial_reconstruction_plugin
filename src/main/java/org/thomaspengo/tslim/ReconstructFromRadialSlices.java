@@ -136,14 +136,14 @@ public class ReconstructFromRadialSlices {
 	ExecutorService actionExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 	ExecutorService chunkExecutor = Executors.newFixedThreadPool(n_chunks);
 	
-	public void startReconstruction(ReconstructionCallback<FloatType> callback) {
+	public void startReconstruction(ReconstructionProgress progCallback, ReconstructionCallback<FloatType> recCallback) {
 		actionExecutor.execute(() -> {
 			try {				
-				Img<FloatType> res = createReconstruction(callback);
+				Img<FloatType> res = createReconstruction(progCallback);
 			
-				callback.reconstructed(true, res, null);
+				recCallback.reconstructed(true, res, null);
 			} catch (Exception e) {
-				callback.reconstructed(false, null, e);
+				recCallback.reconstructed(false, null, e);
 			}
 		});
 	}

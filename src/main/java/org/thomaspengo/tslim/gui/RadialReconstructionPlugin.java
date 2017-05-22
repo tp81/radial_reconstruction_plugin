@@ -73,7 +73,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 			
 			Img<FloatType> res = reconstructor.createReconstruction( (progress) -> IJ.showProgress(progress) );
 			
-			ImageJFunctions.show(res);
+			ImageJFunctions.wrap(res,inputImage.getTitle()+" reconstructed").duplicate().show();
 		}
 	}
 	
@@ -168,7 +168,8 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 		// RECONSTRUCT BUTTON
 		jbReconstruct.setEnabled(false);
 		jbReconstruct.addActionListener(e -> {
-			reconstructor.startReconstruction(new ReconstructionActivity(inputImage,this));
+			ReconstructionActivity a = new ReconstructionActivity(inputImage,this);
+			reconstructor.startReconstruction(a,a);
 			if (Recorder.record) {
 				String command = "call('"+RadialReconstructionPlugin.class.getCanonicalName()+".start','input=["+((ImagePointer)jcbImages.getSelectedItem()).getTitle()+"] spacing="+jtSpacing.getValue()+"');";
 				Recorder.recordString(command);
@@ -212,7 +213,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 		ij.WindowManager.addWindow(this);
 	}
 	
-	class ReconstructionActivity implements ReconstructionCallback<FloatType> {
+	class ReconstructionActivity implements ReconstructionCallback<FloatType>, ReconstructionProgress {
 		RadialReconstructionPlugin parent;
 		ImagePlus im;
 		
@@ -225,7 +226,7 @@ public class RadialReconstructionPlugin extends JDialog implements PlugIn {
 		public void reconstructed(boolean success,
 				Img<FloatType> reconstruction, Exception e) {
 			if (success) {
-				ImageJFunctions.showFloat(reconstruction,im.getTitle()+" radial reconstruction");
+				ImageJFunctions.wrap(reconstruction,im.getTitle()+" reconstruction").duplicate().show();
 				IJ.showProgress(1);
 			} else {
 				JOptionPane.showMessageDialog(parent, "Exception thrown :"+e.getLocalizedMessage());
